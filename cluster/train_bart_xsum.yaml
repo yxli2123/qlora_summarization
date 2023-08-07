@@ -1,0 +1,52 @@
+description: bart_quant
+
+target:
+  service: aml
+  name: tscience-a100-80g-eastus
+  # name: V10032G
+  # name: A100EastUS
+  # name: openai-A10080G
+  # name: A10080G
+  # name: gpu-v100-32g
+  # name: gpu-a100-80g
+
+
+environment:
+  image: pytorch/pytorch:2.0.1-cuda11.7-cudnn8-runtime
+  image_setup:
+    - apt-get -y update
+    - apt-get -y install wget
+    - apt-get -y install git
+  setup:
+    - pip install git+https://github.com/huggingface/transformers
+    - pip install git+https://github.com/huggingface/accelerate
+    - pip install evaluate scikit-learn scipy typing_extensions einops
+    - pip install datasets sentencepiece setuptools rouge-score nltk openai
+    - pip install tensorboard tensorboardX
+
+storage:
+  output:
+    storage_account_name: tsinterns
+    container_name: qlora
+    mount_dir: /mnt/t-qingru
+
+code:
+  local_dir: ../
+
+jobs:
+- name: bart_quant_cnn
+  sku: 1xG8
+  process_count_per_node: 1
+  submit_args:
+    container_args:
+      cpus: 32
+  command:
+    - CUDA_VISIBLE_DEVICES=0 python run_summarization_no_trainer.py --output_dir /mnt/t-qingru/exp_results --learning_rate 1e-5 --seed 42 --num_bits 2 --reduced_rank 8 --num_iter 1 --num_train_epochs 15 --per_device_train_batch_size 16 --gradient_accumulation_steps 1 --per_device_eval_batch_size 16 --path_to_model_zoo /mnt/t-qingru/yixiao_model_zoo --model_name_or_path facebook/bart-large --dataset_name xsum --dataset_config "3.0.0" --with_tracking --pad_to_max_length --max_source_length 1024 --num_warmup_steps 1000 &
+    - CUDA_VISIBLE_DEVICES=1 python run_summarization_no_trainer.py --output_dir /mnt/t-qingru/exp_results --learning_rate 3e-5 --seed 42 --num_bits 2 --reduced_rank 8 --num_iter 1 --num_train_epochs 15 --per_device_train_batch_size 16 --gradient_accumulation_steps 1 --per_device_eval_batch_size 16 --path_to_model_zoo /mnt/t-qingru/yixiao_model_zoo --model_name_or_path facebook/bart-large --dataset_name xsum --dataset_config "3.0.0" --with_tracking --pad_to_max_length --max_source_length 1024 --num_warmup_steps 1000 &
+    - CUDA_VISIBLE_DEVICES=2 python run_summarization_no_trainer.py --output_dir /mnt/t-qingru/exp_results --learning_rate 5e-5 --seed 42 --num_bits 2 --reduced_rank 8 --num_iter 1 --num_train_epochs 15 --per_device_train_batch_size 16 --gradient_accumulation_steps 1 --per_device_eval_batch_size 16 --path_to_model_zoo /mnt/t-qingru/yixiao_model_zoo --model_name_or_path facebook/bart-large --dataset_name xsum --dataset_config "3.0.0" --with_tracking --pad_to_max_length --max_source_length 1024 --num_warmup_steps 1000 &
+    - CUDA_VISIBLE_DEVICES=3 python run_summarization_no_trainer.py --output_dir /mnt/t-qingru/exp_results --learning_rate 9e-5 --seed 42 --num_bits 2 --reduced_rank 8 --num_iter 1 --num_train_epochs 15 --per_device_train_batch_size 16 --gradient_accumulation_steps 1 --per_device_eval_batch_size 16 --path_to_model_zoo /mnt/t-qingru/yixiao_model_zoo --model_name_or_path facebook/bart-large --dataset_name xsum --dataset_config "3.0.0" --with_tracking --pad_to_max_length --max_source_length 1024 --num_warmup_steps 1000 &
+    - CUDA_VISIBLE_DEVICES=4 python run_summarization_no_trainer.py --output_dir /mnt/t-qingru/exp_results --learning_rate 1e-5 --seed 42 --num_bits 2 --reduced_rank 8 --num_iter 0 --num_train_epochs 15 --per_device_train_batch_size 16 --gradient_accumulation_steps 1 --per_device_eval_batch_size 16 --path_to_model_zoo /mnt/t-qingru/yixiao_model_zoo --model_name_or_path facebook/bart-large --dataset_name xsum --dataset_config "3.0.0" --with_tracking --pad_to_max_length --max_source_length 1024 --num_warmup_steps 1000 &
+    - CUDA_VISIBLE_DEVICES=5 python run_summarization_no_trainer.py --output_dir /mnt/t-qingru/exp_results --learning_rate 3e-5 --seed 42 --num_bits 2 --reduced_rank 8 --num_iter 0 --num_train_epochs 15 --per_device_train_batch_size 16 --gradient_accumulation_steps 1 --per_device_eval_batch_size 16 --path_to_model_zoo /mnt/t-qingru/yixiao_model_zoo --model_name_or_path facebook/bart-large --dataset_name xsum --dataset_config "3.0.0" --with_tracking --pad_to_max_length --max_source_length 1024 --num_warmup_steps 1000 &
+    - CUDA_VISIBLE_DEVICES=6 python run_summarization_no_trainer.py --output_dir /mnt/t-qingru/exp_results --learning_rate 5e-5 --seed 42 --num_bits 2 --reduced_rank 8 --num_iter 0 --num_train_epochs 15 --per_device_train_batch_size 16 --gradient_accumulation_steps 1 --per_device_eval_batch_size 16 --path_to_model_zoo /mnt/t-qingru/yixiao_model_zoo --model_name_or_path facebook/bart-large --dataset_name xsum --dataset_config "3.0.0" --with_tracking --pad_to_max_length --max_source_length 1024 --num_warmup_steps 1000 &
+    - sleep 3600
+    - CUDA_VISIBLE_DEVICES=7 python run_summarization_no_trainer.py --output_dir /mnt/t-qingru/exp_results --learning_rate 9e-5 --seed 42 --num_bits 2 --reduced_rank 8 --num_iter 0 --num_train_epochs 15 --per_device_train_batch_size 16 --gradient_accumulation_steps 1 --per_device_eval_batch_size 16 --path_to_model_zoo /mnt/t-qingru/yixiao_model_zoo --model_name_or_path facebook/bart-large --dataset_name xsum --dataset_config "3.0.0" --with_tracking --pad_to_max_length --max_source_length 1024 --num_warmup_steps 1000
