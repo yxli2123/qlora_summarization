@@ -356,10 +356,11 @@ def main():
                                    f"lr_{args.learning_rate}", f"seed{args.seed}")
 
     if args.with_tracking:
+        os.makedirs(args.output_dir, exist_ok=True)
         accelerator_log_kwargs["log_with"] = args.report_to
         accelerator_log_kwargs["project_dir"] = args.output_dir
-        loss_file = open(os.path.join(args.output_dir, "loss.txt", "w"))
-        metric_file = open(os.path.join(args.output_dir, "metric.txt", "w"))
+        loss_file = open(os.path.join(args.output_dir, "loss.txt"), "w")
+        metric_file = open(os.path.join(args.output_dir, "metric.txt"), "w")
 
     # accelerator = Accelerator(gradient_accumulation_steps=args.gradient_accumulation_steps, **accelerator_log_kwargs)
     if args.source_prefix is None and args.model_name_or_path in [
@@ -390,9 +391,6 @@ def main():
     # If passed along, set the training seed now.
     if args.seed is not None:
         set_seed(args.seed)
-
-    # Handle the repository creation
-    os.makedirs(args.output_dir, exist_ok=True)
 
     # Get the datasets: you can either provide your own CSV/JSON/TXT training and evaluation files (see below)
     # or just provide the name of one of the public datasets available on the hub at https://huggingface.co/datasets/
@@ -467,10 +465,11 @@ def main():
                             f"bit{args.num_bits}", f"iter{args.num_iter}", f"rank{args.reduced_rank}")
 
     model = load_checkpoint_and_dispatch(model, args.ckpt_path, device_map="auto")
+    model = model.to('cuda')
 
     print(model)
     for n, p in model.named_parameters():
-        print(n, p.size(), p.max().item(), p.min().item(), p.mean().item())
+        print(n, p.size(), p.max().item(), p.min().item(), p.mean().item(), p.device)
 
 
     # We resize the embeddings only when necessary to avoid index errors. If you are creating a model from scratch
@@ -659,7 +658,7 @@ def main():
             total_loss = 0
         active_dataloader = train_dataloader
         for step, batch in enumerate(active_dataloader):
-
+            batch = {k: v.to('cuda') for k, v in batch.items()}
             outputs = model(**batch)
             loss = outputs.loss
             # We keep track of the loss at each epoch
@@ -694,6 +693,7 @@ def main():
         }
         for step, batch in enumerate(eval_dataloader):
             with torch.no_grad():
+                batch = {k: v.to('cuda') for k, v in batch.items()}
                 generated_tokens = model.generate(
                     batch["input_ids"],
                     attention_mask=batch["attention_mask"],

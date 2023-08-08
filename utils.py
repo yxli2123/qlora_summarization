@@ -166,16 +166,17 @@ class QLinearLR(nn.Module):
                  block_size=64,
                  enable_lora=True,
                  bias=None,
+                 device='cuda',
                  ):
         super().__init__()
         self.num_bits = num_bits
         self.enable_lora = enable_lora
         self.quantizer = NFQuantizer(num_bits=num_bits)
 
-        self.register_buffer('qweight', torch.empty((in_features * out_features // 8 * num_bits, 1), dtype=torch.uint8))
-        self.register_buffer('absmax', torch.empty((in_features * out_features // block_size, 1), dtype=torch.float32))
-        self.lora_A = nn.Parameter(torch.empty((reduced_rank, in_features), dtype=torch.float32))
-        self.lora_B = nn.Parameter(torch.empty((out_features, reduced_rank), dtype=torch.float32))
+        self.register_buffer('qweight', torch.empty((in_features * out_features // 8 * num_bits, 1), dtype=torch.uint8, device=device))
+        self.register_buffer('absmax', torch.empty((in_features * out_features // block_size, 1), dtype=torch.float32, device=device))
+        self.lora_A = nn.Parameter(torch.empty((reduced_rank, in_features), dtype=torch.float32, device=device))
+        self.lora_B = nn.Parameter(torch.empty((out_features, reduced_rank), dtype=torch.float32, device=device))
 
         self.bias = bias
 
@@ -227,7 +228,8 @@ def substitute_layer_weights_iter_quant(module,
                                      num_bits,
                                      block_size=64,
                                      enable_lora=enable_lora,
-                                     bias=target_attr.bias)
+                                     bias=target_attr.bias,
+                                     device='cuda')
 
             if not load:
                 weight = target_attr.weight.data
@@ -250,8 +252,8 @@ def substitute_layer_weights_iter_quant(module,
 
                 if num_iter == 0:
                     quantized_weight, max_abs, shape = quantizer.quantize_block(res)
-                    L = torch.randn((reduced_rank, in_feature), device=device)
-                    R = torch.zeros((out_feature, reduced_rank), device=device)
+                    R = torch.randn((reduced_rank, in_feature), device=device)
+                    L = torch.zeros((out_feature, reduced_rank), device=device)
                 linear_loras.initial_backbone(quantized_weight, max_abs)
                 linear_loras.initial_lora(R, L)
 
