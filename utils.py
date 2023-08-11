@@ -167,17 +167,19 @@ class QLinearLR(nn.Module):
                  enable_lora=True,
                  bias=None,
                  device='cuda',
+                 fake_quant=False,
                  ):
         super().__init__()
         self.num_bits = num_bits
         self.enable_lora = enable_lora
         self.quantizer = NFQuantizer(num_bits=num_bits)
+        self.fake_quant = fake_quant
 
         self.register_buffer('qweight', torch.empty((in_features * out_features // 8 * num_bits, 1), dtype=torch.uint8, device=device))
         self.register_buffer('absmax', torch.empty((in_features * out_features // block_size, 1), dtype=torch.float32, device=device))
         self.lora_A = nn.Parameter(torch.empty((reduced_rank, in_features), dtype=torch.float32, device=device))
         self.lora_B = nn.Parameter(torch.empty((out_features, reduced_rank), dtype=torch.float32, device=device))
-
+        self.weight = None
         self.bias = bias
 
         self.weight_size = torch.Size([out_features, in_features])
@@ -185,7 +187,10 @@ class QLinearLR(nn.Module):
         self.block_size = block_size
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
-        weight = self.quantizer.dequantize_block(self.qweight, self.absmax, self.weight_size, self.block_size)
+        if self.fake_quant:
+            weight = self.weight
+        else:
+            weight = self.quantizer.dequantize_block(self.qweight, self.absmax, self.weight_size, self.block_size)
         ret = input @ weight.T
         lora = (input @ self.lora_A.T) @ self.lora_B.T if self.enable_lora else 0
 
@@ -199,6 +204,14 @@ class QLinearLR(nn.Module):
         self.lora_A.data = lora_A
         self.lora_B.data = lora_B
 
+    def convert_to_fake_quant(self):
+        self.fake_quant = True
+        self.weight = self.quantizer.dequantize_block(self.qweight, self.absmax, self.weight_size, self.block_size)
+        self.weight = nn.Parameter(self.weight, requires_grad=False)
+        del self.qweight
+        del self.absmax
+        torch.cuda.empty_cache()
+
 
 def substitute_layer_weights_iter_quant(module,
                                         allow_name=None,
@@ -207,7 +220,8 @@ def substitute_layer_weights_iter_quant(module,
                                         num_bits=4,
                                         num_iter=5,
                                         load=False,
-                                        enable_lora=True):
+                                        enable_lora=True,
+                                        fake_quant=False):
     # Default allow name and block name lists
     if allow_name is None:
         allow_name = ['query_key_value', 'dense', 'dense_h_to_4h', 'dense_4h_to_h',
@@ -229,7 +243,8 @@ def substitute_layer_weights_iter_quant(module,
                                      block_size=64,
                                      enable_lora=enable_lora,
                                      bias=target_attr.bias,
-                                     device='cuda')
+                                     device='cuda',
+                                     fake_quant=fake_quant)
 
             if not load:
                 weight = target_attr.weight.data
@@ -271,4 +286,28 @@ def substitute_layer_weights_iter_quant(module,
                                                 num_bits=num_bits,
                                                 num_iter=num_iter,
                                                 load=load,
-                                                enable_lora=enable_lora)
+                                                enable_lora=enable_lora,
+                                                fake_quant=fake_quant)
+
+
+def convert_quant2fake_quant(module, allow_name=None, block_name=None):
+    # Default allow name and block name lists
+    if allow_name is None:
+        allow_name = ['query_key_value', 'dense', 'dense_h_to_4h', 'dense_4h_to_h',
+                      'q_proj', 'k_proj', 'v_proj', 'out_proj', 'fc1', 'fc2']
+    if block_name is None:
+        block_name = ['pooler', 'classifier', 'LayerNorm', 'embeddings']
+
+    allow_module = [QLinearLR]
+
+    for attr_str in dir(module):
+        target_attr = getattr(module, attr_str)
+        if any(isinstance(target_attr, module) for module in allow_module) and any(an in attr_str for an in allow_name):
+            print("====================================================")
+            print(attr_str, target_attr)
+            target_attr.convert_to_fake_quant()
+
+    for name, immediate_child_module in module.named_children():
+        # do not continue to iterate when the module's name is in the block_name
+        if not any(name in bn for bn in block_name):
+            convert_quant2fake_quant(immediate_child_module, allow_name=allow_name, block_name=block_name)

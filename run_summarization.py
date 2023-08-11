@@ -138,7 +138,7 @@ class ModelArguments:
         default=8,
         metadata={"help": "A prefix to add before every source text (useful for T5 models)."}
     )
-    model_zoo: str = field(
+    path_to_model_zoo: str = field(
         default="./",
         metadata={"help": "A prefix to add before every source text (useful for T5 models)."}
     )
@@ -469,32 +469,36 @@ def main():
     #              Model                #
     #                                   #
     #####################################
-    with init_empty_weights():
-        model = AutoModelForSeq2SeqLM.from_config(config)
 
-        # Quantize
-        allow_name = ['query_key_value', 'dense', 'dense_h_to_4h', 'dense_4h_to_h',
-                      'q_proj', 'v_proj', 'k_proj', 'o_proj', 'gate_proj', 'up_proj', 'down_proj']
-        block_name = ['pooler', 'classifier', 'LayerNorm', 'embeddings', 'embed']
-        utils.substitute_layer_weights_iter_quant(model,
-                                                  allow_name=allow_name,
-                                                  block_name=block_name,
-                                                  reduced_rank=model_args.reduced_rank,
-                                                  num_bits=model_args.num_bits,
-                                                  num_iter=model_args.num_iter,
-                                                  load=True,
-                                                  enable_lora=True)
+    model = AutoModelForSeq2SeqLM.from_config(config)
+
+    # Quantize
+    allow_name = ['query_key_value', 'dense', 'dense_h_to_4h', 'dense_4h_to_h',
+                  'q_proj', 'v_proj', 'k_proj', 'o_proj', 'gate_proj', 'up_proj', 'down_proj',
+                  'out_proj', 'fc1', 'fc2']
+    block_name = ['pooler', 'classifier', 'LayerNorm', 'embeddings', 'embed']
+    utils.substitute_layer_weights_iter_quant(model,
+                                              allow_name=allow_name,
+                                              block_name=block_name,
+                                              reduced_rank=model_args.reduced_rank,
+                                              num_bits=model_args.num_bits,
+                                              num_iter=model_args.num_iter,
+                                              load=True,
+                                              enable_lora=True)
 
     torch.cuda.empty_cache()
     if model_args.ckpt_path is None:
         model_args.ckpt_path = os.path.join(model_args.path_to_model_zoo, model_args.model_name_or_path.split('/')[-1],
                                       f"bit{model_args.num_bits}", f"iter{model_args.num_iter}", f"rank{model_args.reduced_rank}")
 
-    model = load_checkpoint_and_dispatch(model, model_args.ckpt_path, device_map="auto")
+    model.load_state_dict(torch.load(os.path.join(model_args.ckpt_path, 'pytorch_model.bin'), map_location='cuda:0'))
+    model = model.to('cuda:0')
 
     print(model)
     for n, p in model.named_parameters():
         print(n, p.size(), p.max().item(), p.min().item(), p.mean().item())
+
+    os.system("nvidia-smi")
 
     # We resize the embeddings only when necessary to avoid index errors. If you are creating a model from scratch
     # on a small vocab and want a smaller embedding size, remove this test.
@@ -542,7 +546,8 @@ def main():
     elif training_args.do_eval:
         if "validation" not in raw_datasets:
             raise ValueError("--do_eval requires a validation dataset")
-        column_names = raw_datasets["validation"].column_names
+        # TODO: change back to eval when releasing
+        column_names = raw_datasets["test"].column_names
     elif training_args.do_predict:
         if "test" not in raw_datasets:
             raise ValueError("--do_predict requires a test dataset")
@@ -637,7 +642,8 @@ def main():
 
     if training_args.do_eval:
         max_target_length = data_args.val_max_target_length
-        eval_dataset = raw_datasets["validation"]
+        # TODO: remove it when release
+        eval_dataset = raw_datasets["test"]
         if data_args.max_eval_samples is not None:
             max_eval_samples = min(len(eval_dataset), data_args.max_eval_samples)
             eval_dataset = eval_dataset.select(range(max_eval_samples))
@@ -827,15 +833,21 @@ python examples/pytorch/summarization/run_summarization.py \
     --do_predict \
     --dataset_name cnn_dailymail \
     --dataset_config "3.0.0" \
-    --output_dir /tmp/tst-summarization \
+    --output_dir /mnt/t-qingru/exp_results \
     --per_device_train_batch_size 4 \
     --per_device_eval_batch_size 4 \
     --overwrite_output_dir \
     --predict_with_generate \
     --report_to tensorboard \
+    --seed 42 \
     --num_bits 4 \
     --num_iter 0 \
     --reduced_rank 8 \
-    --model_zoo ./ \
+    --path_to_model_zoo /mnt/t-qingru/yixiao_model_zoo/ \
+    --logging_steps 100 \
+    --eval_steps 1000 \
+    --save_steps 2000 \
+    
+    
     
 """
