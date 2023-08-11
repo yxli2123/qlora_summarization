@@ -493,6 +493,7 @@ def main():
 
     model.load_state_dict(torch.load(os.path.join(model_args.ckpt_path, 'pytorch_model.bin'), map_location='cuda:0'))
     model = model.to('cuda:0')
+    utils.convert_quant2fake_quant(model, allow_name, block_name)
 
     print(model)
     for n, p in model.named_parameters():
